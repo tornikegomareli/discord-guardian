@@ -1,0 +1,148 @@
+# Discord Guardian configuration
+# Copy to config.yaml and fill in your values. config.yaml is gitignored.
+
+server:
+  # Staff-only channel where moderation flags, budget alerts and the daily digest are posted
+  mod_channel_id: "000000000000000000"   # REQUIRED: private staff channel (mod log + Approve buttons)
+  # Channel for welcome messages (empty = welcomes disabled)
+  welcome_channel_id: ""
+  # Channels where the bot may answer plain questions without being @mentioned
+  general_channel_ids: []
+
+llm:
+  # "grokbot" (default) = NO LLM calls and no AI key. Mentions and pre-filter flags are POSTed to a
+  #     Grok Bot routine webhook (GUARDIAN_WEBHOOK_URL/KEY); the Grok Bot answers via `npm run cmd`.
+  # "openai" = optional: xAI or any OpenAI-compatible endpoint, key in LLM_API_KEY
+  # "anthropic" = Claude API via ANTHROPIC_API_KEY
+  provider: "grokbot"
+  base_url: "https://api.x.ai/v1"
+  models:
+    classifier: "grok-4.20-0309-non-reasoning"  # fast, cheap
+    chat: "grok-4.20-0309-non-reasoning"
+    escalation: "grok-4.3"
+    digest: "grok-4.20-0309-non-reasoning"
+  # USD per million tokens (xAI price list, Nov 2026) — used for the daily budget cap.
+  pricing:
+    grok-4.20-0309-non-reasoning: { input: 1.25, output: 2.5 }
+    grok-4.3: { input: 1.25, output: 2.5 }
+
+moderation:
+  # Zero-cost regex gate: only matching messages ever reach the LLM. Case-insensitive.
+  prefilter_patterns:
+    - "discord\\.gg/"
+    - "discord\\.com/invite"
+    - "free\\s+nitro"
+    - "nitro\\s+give?away"
+    - "steamcommunity\\.com/gift"
+    - "crack(ed|watch)?\\s+(download|version)"
+    - "torrent"
+    - "mod\\s*menu"
+    - "(sell|buy)(ing)?\\s+accounts?"
+    - "@everyone"
+  # Also classify when a message mentions more than N users
+  max_mentions: 5
+  # Verdicts at or above this severity get a second review by the escalation model
+  escalate_severity: "high"
+  # recommend = flag only | approve = flag + Approve/Reject buttons | auto = act alone on confident scam/spam
+  mode: "approve"
+  timeout_minutes: 60
+  ban_delete_message_seconds: 3600
+  auto_categories: ["scam", "spam"]   # auto mode never acts on other categories
+  auto_min_confidence: 0.9            # and only on severity "high"
+  auto_actions: ["delete", "timeout"]
+  mod_log_channel_id: ""              # empty = server.mod_channel_id
+  approver_role_ids: []               # empty = anyone with Moderate Members
+
+# Only used with llm.provider: grokbot
+grokbot:
+  auth_header: "Authorization"   # sends "Authorization: Bearer <key>" 
+  timeout_ms: 8000               # one try, no retry; failures go to failed_log
+  user_cooldown_seconds: 60      # per user, per event type
+  channel_cooldown_seconds: 20   # mentions only; flags always pass (subject to cap)
+  daily_event_cap: 200           # hard ceiling on webhook wakes per UTC day
+  context_messages: 6
+  context_max_chars: 1500
+  failed_log: "data/failed-events.jsonl"
+  typing_max_seconds: 90         # "Guardian is typing..." while the Grok Bot thinks
+  local_port: 8787               # local command API, bound to 127.0.0.1 only
+  max_timeout_minutes: 1440      # ceiling for timeouts requested via the local API
+
+interactions:
+  respond_to_mentions: true
+  # Answer plain questions (ending with "?") in general_channel_ids
+  respond_in_general: true
+  user_cooldown_seconds: 30
+  channel_cooldown_seconds: 120
+  # Recent messages included as conversation context in replies
+  context_messages: 10
+  welcome_enabled: true
+  persona: >
+    You are Guardian, the community helper of this Discord server.
+    Be friendly, warm and concise, and answer in the language the user writes in.
+    Only state facts from the FAQ. When you are not sure, say you don't know
+    and suggest asking the staff.
+  # Canonical answers. In grokbot mode the Grok Bot answers ONLY from these.
+  faq:
+    about: "Replace with one or two sentences about your community or project, with links."
+    rules: "Replace with a short summary of your server rules."
+    support: "Replace with where members should report bugs or get help."
+    safety: "Staff will never DM you first asking for passwords, API keys or payment details. Report suspicious DMs to the mods."
+
+personality:
+  # The agent's character sheet (used by the optional built-in LLM providers).
+  character: >
+    You are Guardian: friendly, calm and to the point. You care about keeping
+    this community kind and safe, and you are honest when you don't know something.
+
+memory:
+  # Persistent memory lives here (gitignored): lore.md, diary.md, members/
+  # You can edit data/lore.md by hand to teach the agent server facts and jokes.
+  data_dir: "data"
+  member_memory_max_chars: 2000
+  # After replying to someone, the cheap model notes anything worth remembering
+  learn_about_members: true
+
+proactive:
+  # Spontaneous posts: discussion starters, tips, comments on activity.
+  # The agent checks recent conversation first and stays silent if it would interrupt.
+  enabled: false
+  channel_id: ""            # usually your #general
+  min_hours_between: 6
+  max_hours_between: 18
+  active_hours_utc: [9, 23] # no posts at night
+  daily_max: 3
+
+reactions:
+  # Occasional emoji reactions on messages the agent "likes"
+  enabled: true
+  probability: 0.08         # fraction of general-channel messages considered
+  daily_max: 30
+
+digest:
+  enabled: true
+  # Daily digest posted to mod_channel_id at this UTC hour
+  post_hour_utc: 21
+
+news:
+  # Daily public news roundup: the agent pulls the feeds, picks the genuinely
+  # interesting items and posts a short in-character roundup with links.
+  enabled: false
+  channel_id: ""            # your #news channel (text or announcement)
+  post_hour_utc: 10
+  sources: []
+  max_items_per_source: 10
+
+movies:
+  # Daily movies and highlights roundup: the agent looks for official or fan-made
+  # videos from the configured feeds, categorizes them, and posts a formatted roundup.
+  enabled: false
+  channel_id: ""            # your #movies-and-highlights channel
+  post_hour_utc: 18
+  sources: []
+  max_items_per_source: 10
+
+budget:
+  # Hard daily spend cap (USD). When reached: LLM calls stop until midnight UTC,
+  # moderation falls back to regex-flag-only, a notice is posted to the mod channel.
+  daily_usd_cap: 0.50
+  warn_fraction: 0.8
