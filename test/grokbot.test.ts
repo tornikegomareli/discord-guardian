@@ -36,9 +36,10 @@ test("bridge posts JSON with auth to the webhook", async () => {
 
 test("local API: 127.0.0.1 only, secret required, no kick/ban", async () => {
   assert.ok(!LOCAL_COMMANDS.includes("ban" as any) && !LOCAL_COMMANDS.includes("kick" as any));
+  assert.ok(LOCAL_COMMANDS.includes("announce"));
   assert.equal(checkSecret("abc", "abd"), false);
   const secret = "s".repeat(24);
-  const srv = startLocalApi({ port: 0 as any, client: { user: { tag: "g#1" } } as any, actions: {} as any, typing: new TypingTracker(1), modChannel: () => null, maxTimeoutMinutes: 60, secret });
+  const srv = startLocalApi({ port: 0 as any, client: { user: { tag: "g#1" } } as any, actions: {} as any, typing: new TypingTracker(1), modChannel: () => null, maxTimeoutMinutes: 60, secret, allowedChannelIds: [] });
   await new Promise((r) => srv.once("listening", r));
   const addr = srv.address() as any;
   assert.equal(addr.address, "127.0.0.1");

@@ -2,11 +2,13 @@
 # Copy to config.yaml and fill in your values. config.yaml is gitignored.
 
 server:
-  # Staff-only channel where moderation flags, budget alerts and the daily digest are posted
+  # Staff-only channel where moderation flags, budget alerts and the daily digest are posted.
+  # announce may post here.
   mod_channel_id: "000000000000000000"   # REQUIRED: private staff channel (mod log + Approve buttons)
   # Channel for welcome messages (empty = welcomes disabled)
   welcome_channel_id: ""
-  # Channels where the bot may answer plain questions without being @mentioned
+  # Channels where the bot may answer plain questions without being @mentioned.
+  # announce may also post to these channels.
   general_channel_ids: []
 
 llm:

@@ -1,15 +1,17 @@
 import http from "node:http";
 import crypto from "node:crypto";
-import { ChannelType, type Client, type TextChannel } from "discord.js";
+import { ChannelType, PermissionFlagsBits, type Client, type TextChannel } from "discord.js";
 import type { ModerationActions } from "../moderation/actions.js";
 import { buildButtons } from "../moderation/actions.js";
+import { announceAllowedMentions, announceFilesFromBody, mentionEveryoneRequested } from "./announce.js";
 import type { TypingTracker } from "./typing.js";
 
 /**
  * Local command interface for the Grok Bot. Bound to 127.0.0.1 only.
  * Deliberately exposes NO kick/ban: those exist only behind the staff-channel Approve buttons.
+ * announce can attach an image and, only when asked, ping @everyone/@here. Never roles or users.
  */
-export const LOCAL_COMMANDS = ["reply", "delete", "timeout", "flag-for-approval", "health"] as const;
+export const LOCAL_COMMANDS = ["reply", "announce", "delete", "timeout", "flag-for-approval", "health"] as const;
 const ID = /^\d{5,25}$/;
 
 export function checkSecret(given: string | undefined, secret: string): boolean {
@@ -21,9 +23,15 @@ export function checkSecret(given: string | undefined, secret: string): boolean 
 export function startLocalApi(opts: {
   port: number; client: Client; actions: ModerationActions; typing: TypingTracker;
   modChannel: () => TextChannel | null; maxTimeoutMinutes: number; secret?: string;
+  /** Channels an announcement may use: server.mod_channel_id and server.general_channel_ids. */
+  allowedChannelIds: readonly string[];
+  /** Defaults to stdout, which pm2 writes to data/logs/out.log. */
+  log?: (message: string) => void;
 }): http.Server {
   const secret = opts.secret ?? process.env.GUARDIAN_LOCAL_SECRET;
   if (!secret || secret.length < 16) throw new Error("GUARDIAN_LOCAL_SECRET must be set (16+ chars)");
+  const allowedChannelIds = new Set(opts.allowedChannelIds);
+  const log = opts.log ?? console.log.bind(console);
 
   const textChannel = async (id: string) => {
     if (!ID.test(id)) throw new Error("bad channel_id");
@@ -45,6 +53,35 @@ export function startLocalApi(opts: {
         allowedMentions: { parse: [], repliedUser: true },
       });
       return { ok: true, message_id: msg.id };
+    },
+    announce: async (b) => {
+      const channelId = String(b.channel_id ?? "");
+      if (!ID.test(channelId)) throw new Error("bad channel_id");
+      if (!allowedChannelIds.has(channelId)) throw new Error("channel not allowed");
+      const mod = opts.modChannel();
+      if (!mod) throw new Error("mod channel not ready");
+      const ch = await textChannel(channelId);
+      if (ch.guildId !== mod.guildId) throw new Error("channel not allowed");
+      const content = String(b.content ?? "").slice(0, 2000);
+      if (!content.trim()) throw new Error("content required");
+      // Path, not bytes: both processes are on this computer, and the JSON body stays small.
+      const images = await announceFilesFromBody(b);
+      const ping = mentionEveryoneRequested(b.mention_everyone);
+      if (ping) {
+        const me = ch.guild.members.me ?? await ch.guild.members.fetchMe();
+        if (!ch.permissionsFor(me)?.has(PermissionFlagsBits.MentionEveryone)) {
+          throw new Error("missing Mention Everyone permission");
+        }
+      }
+      opts.typing.stop(ch.id);
+      const msg = await ch.send({
+        content,
+        ...(images.length ? { files: images.map((f) => ({ attachment: f.data, name: f.name })) } : {}),
+        allowedMentions: announceAllowedMentions(ping),
+      });
+      const imageName = images.length ? images.map((f) => f.name).join(",") : "none";
+      log(`[announce] channel=${ch.id} length=${content.length} image=${imageName} everyone=${ping}`);
+      return { ok: true, message_id: msg.id, url: msg.url };
     },
     delete: async (b) => {
       const ch = await textChannel(String(b.channel_id));
