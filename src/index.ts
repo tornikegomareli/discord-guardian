@@ -127,7 +127,15 @@ client.once(Events.ClientReady, async (c) => {
   }
 
   if (GROKBOT) {
-    startLocalApi({ port: cfg.grokbot.local_port, client: c, actions, typing, modChannel: () => modChannel, maxTimeoutMinutes: cfg.grokbot.max_timeout_minutes });
+    startLocalApi({
+      port: cfg.grokbot.local_port,
+      client: c,
+      actions,
+      typing,
+      modChannel: () => modChannel,
+      maxTimeoutMinutes: cfg.grokbot.max_timeout_minutes,
+      allowedChannelIds: [cfg.server.mod_channel_id, ...cfg.server.general_channel_ids],
+    });
     setInterval(() => { if (modChannel) void digest.tick(modChannel).catch(console.error); }, 60_000);
     return; // no LLM-driven news, movies or proactive posts in grokbot mode
   }

@@ -4,7 +4,7 @@
 
 ```
  Discord ──► discord-guardian (pm2) ──► webhook ──► Grok Bot ──► npm run cmd ──► Discord
-              spam filter, flags          Bearer key    decides      reply · delete · timeout
+              spam filter, flags          Bearer key    decides      reply · delete · timeout · announce
 ```
 
 Discord Guardian is an AI moderator and FAQ helper for one Discord server. The Discord process makes no AI calls. It filters obvious spam locally, forwards mentions and flagged messages to a [Grok Bot](https://grok.com) webhook routine, and the Grok Bot acts through a small local CLI. Kicks and bans only happen when a human staff member presses Approve.
@@ -26,7 +26,7 @@ The Grok Bot is told how to handle each case:
 
 ## Answers from your FAQ, nothing else
 
-@mention the bot or reply to it and the message goes to the Grok Bot as a `mention` event with the last few messages as context. While it thinks, Discord shows "Guardian is typing…". It answers only from the FAQ in `config.yaml` and never pings `@everyone`, roles or users (except the person it replies to).
+@mention the bot or reply to it and the message goes to the Grok Bot as a `mention` event with the last few messages as context. While it thinks, Discord shows "Guardian is typing…". It answers only from the FAQ in `config.yaml` and never pings `@everyone`, roles or users (except the person it replies to). Owner announcements are a separate `announce` command, described below.
 
 Webhook calls are rationed: 60 seconds per user per event type, 20 seconds per channel for mentions, 200 events per UTC day. A failed send is written to `data/failed-events.jsonl` and is not retried.
 
@@ -88,12 +88,21 @@ The Grok Bot drives everything with `npm run cmd -- <command> key=value …`:
 ```sh
 npm run cmd -- health
 npm run cmd -- reply             channel_id=… content="…" [message_id=…]
+npm run cmd -- announce          channel_id=… content="…" [image=/absolute/path.png] [image_url=https://…] [mention_everyone=true]
 npm run cmd -- delete            channel_id=… message_id=… [reason="…"]
 npm run cmd -- timeout           channel_id=… user_id=… [minutes=10] [reason="…"] [message_id=…]
 npm run cmd -- flag-for-approval channel_id=… message_id=… reason="…"
 ```
 
 Output is `<HTTP status> <JSON>`, and the exit code is 0 on success. `timeout` defaults to 10 minutes and is clamped to 1–`max_timeout_minutes`.
+
+`announce` posts only to `server.mod_channel_id` or a channel in `server.general_channel_ids` in that guild. `image` is an absolute path on this computer to a png, jpg, gif, or webp, up to 8 MB, uploaded as a Discord attachment. `image_url` is an optional http(s) image with the same limits. `@everyone` and `@here` notify only when `mention_everyone=true`, and only if the bot has Mention Everyone in that channel. Role and user mentions are never pinged. `reply` cannot attach files or ping `@everyone`.
+
+```sh
+npm run cmd -- announce channel_id=123456789012345678 content="Movie night is Friday" image=/home/owner/poster.png mention_everyone=true
+```
+
+Success prints `200 {"ok":true,"message_id":"…","url":"https://discord.com/channels/…"}`. The bot log line includes the channel, content length, image file name, and whether everyone was pinged.
 
 Each event arrives as a `POST` to the webhook URL with `Authorization: Bearer <key>`:
 
@@ -166,6 +175,10 @@ The `news`, `movies`, `proactive`, `reactions`, `budget`, `memory` and `llm.mode
 | `fetch failed` / `ECONNREFUSED` from `npm run cmd` | The bot is not running: `pm2 resurrect` or `pm2 start ecosystem.config.cjs` |
 | `Used disallowed intents` | Turn on Message Content and Server Members intents in the portal |
 | `mod_channel_id does not point to a text channel` | Wrong ID, or the bot cannot see that channel |
+| `400 {"error":"channel not allowed"}` | `announce` `channel_id` is not the mod channel or a general channel in this guild |
+| `400 {"error":"missing Mention Everyone permission"}` | `mention_everyone=true`, but the bot cannot mention everyone in that channel |
+| `400 {"error":"image file not found"}` | `image` is not an existing file at that absolute path |
+| `400 {"error":"image too large (max 8 MB)"}` | The image is over 8 MB |
 | `Blocked: target's top role is not below …` | Move the bot role higher in Server Settings → Roles |
 | `[PermsCheck] … missing permissions` | Give the bot View Channel and Send Messages there |
 
